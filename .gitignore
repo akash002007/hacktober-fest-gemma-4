@@ -31,4 +31,6 @@ dist-ssr
 qdrant/
 qdrant.zip
 storage/
-snapshots/
+# Local uploaded contracts and database
+uploads/
+data/

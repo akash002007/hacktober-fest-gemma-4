@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useContractStore } from '../store/useContractStore';
-import type { Clause } from '../types/contract';
 import {
   UploadCloud,
   FileText,
@@ -110,13 +109,10 @@ export function UploadZone() {
       }
 
       const jsonResult = await response.json();
-      const analysisData = jsonResult.data;
+      const contract = jsonResult.contract;
+      const analysisData = jsonResult.data || {};
 
-      if (!analysisData) {
-        throw new Error('Backend returned empty analysis payload.');
-      }
-
-      const rawFindings = analysisData.findings || [];
+      const rawFindings = contract?.risks || analysisData.findings || [];
 
       // STEP 3: Do not use mockData when model returns zero findings.
       if (rawFindings.length === 0) {
@@ -131,50 +127,28 @@ export function UploadZone() {
       }
 
       // Update store with document summary and scratchpad summary
-      if (setGeneralResponse) setGeneralResponse(analysisData.general_response);
-      if (setScratchpadSummary) setScratchpadSummary(analysisData.scratchpad_summary);
-
-      // Transform backend findings into UI Clause objects
-      const transformedClauses: Clause[] = rawFindings.map((finding: any, idx: number) => {
-        const riskLevel: 'high' | 'medium' | 'low' =
-          finding.severity_color === 'red' ? 'high' :
-          finding.severity_color === 'orange' ? 'medium' : 'low';
-
-        const exposure =
-          finding.severity_color === 'red' ? '$150,000+ (Critical Liability Exposure)' :
-          finding.severity_color === 'orange' ? '$35,000 (Operational/Notice Vulnerability)' : 'Procedural / Administrative';
-
-        const quote = finding.exact_quote || '';
-        const previewWords = quote.split(/\s+/).slice(0, 6).join(' ');
-        const clauseName = previewWords ? `${previewWords}...` : `Flagged Clause #${finding.index || idx + 1}`;
-
-        return {
-          id: `clause-${finding.index || idx + 1}`,
-          index_tag: `#${finding.index || idx + 1}`,
-          clause_name: clauseName,
-          text: quote,
-          risk_level: riskLevel,
-          explanation: finding.ai_response || 'Flagged legal term requiring review.',
-          who_it_favors: finding.severity_color === 'red' ? 'Opposing Party (One-Sided)' : 'Needs Negotiation',
-          page_number: 1,
-          position: {
-            x: 8,
-            y: 15 + (idx % 5) * 16,
-            width: 84,
-            height: 12,
-          },
-          counter_clause: finding.ai_response || quote,
-          strategy: `AI Redline Strategy: ${finding.ai_response || 'Adjust for mutual reciprocity.'}`,
-          financial_exposure: exposure,
-          is_accepted: false,
-        };
-      });
+      if (setGeneralResponse) setGeneralResponse(analysisData.general_response || contract?.generalResponse);
+      if (setScratchpadSummary) setScratchpadSummary(analysisData.scratchpad_summary || contract?.scratchpadSummary);
 
       setProgress(100);
       setIsDemoData(false);
-      setClauses(transformedClauses);
-      setSelectedClauseId(transformedClauses[0]?.id || null);
-      triggerToast(`Analysis completed successfully! Indexed ${transformedClauses.length} clauses.`);
+      setClauses(rawFindings);
+      setSelectedClauseId(rawFindings[0]?.id || null);
+
+      // Set backend contract ID and file streaming URL if available
+      if (contract?.id) {
+        useContractStore.setState({
+          currentContractId: contract.id,
+          currentContract: contract,
+          fileUrl: `http://localhost:5000/api/contracts/${contract.id}/file`,
+          financialExposure: contract.financialExposure || 'Not assessed',
+          activeStep: contract.activeStep || 6,
+          executionEvents: contract.executionEvents || [],
+        });
+        useContractStore.getState().loadContracts();
+      }
+
+      triggerToast(`Analysis completed successfully! Indexed ${rawFindings.length} clauses.`);
     } catch (err: any) {
       console.error('Live analysis failed:', err);
       const errMsg = err.message || 'Failed to connect to backend server at http://localhost:5000.';

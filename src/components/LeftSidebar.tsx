@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useContractStore } from '../store/useContractStore';
 import { 
   Plus, 
@@ -6,28 +7,38 @@ import {
   FileText, 
   History, 
   Settings, 
-  ChevronRight
+  ChevronRight,
+  Trash2
 } from 'lucide-react';
 
-const RECENT_HISTORY = [
-  { id: 'h-1', name: 'Master_Services_Agreement_2026.pdf', date: 'Just now', risk: '2 Critical', dotColor: 'bg-red-600 shadow-[0_0_6px_rgba(255,0,0,0.8)]' },
-  { id: 'h-2', name: 'SaaS_Vendor_Subscription_v3.pdf', date: '2 hours ago', risk: '1 Moderate', dotColor: 'bg-zinc-600' },
-  { id: 'h-3', name: 'Enterprise_NDA_AcmeCorp.docx', date: 'Yesterday', risk: 'Low Exposure', dotColor: 'bg-zinc-600' },
-  { id: 'h-4', name: 'Executive_Employment_TermSheet.pdf', date: 'Jul 26', risk: '3 Critical', dotColor: 'bg-red-600 shadow-[0_0_6px_rgba(255,0,0,0.8)]' },
-  { id: 'h-5', name: 'Cloud_Hosting_SLA_Agreement.pdf', date: 'Jul 22', risk: 'Compliant', dotColor: 'bg-zinc-600' },
-];
-
 export function LeftSidebar() {
-  const { isSidebarOpen, toggleSidebar, reset, loadMockDocument, file, triggerToast, user, setSettingsModalOpen } = useContractStore();
+  const { 
+    isSidebarOpen, 
+    toggleSidebar, 
+    reset, 
+    contracts, 
+    loadContracts, 
+    selectContract, 
+    deleteContract, 
+    currentContractId, 
+    file, 
+    triggerToast, 
+    user, 
+    setSettingsModalOpen 
+  } = useContractStore();
+
+  useEffect(() => {
+    loadContracts();
+  }, [loadContracts]);
 
   const handleNewAnalysis = () => {
     reset();
     triggerToast("Started new contract analysis workspace");
   };
 
-  const handleSelectHistory = (docName: string) => {
-    loadMockDocument(docName);
-    triggerToast(`Switched to contract view: ${docName}`);
+  const handleSelect = async (id: string, name: string) => {
+    await selectContract(id);
+    triggerToast(`Loaded contract: ${name}`);
   };
 
   return (
@@ -41,7 +52,7 @@ export function LeftSidebar() {
         <div className="flex items-center justify-between">
           {isSidebarOpen && (
             <button 
-              onClick={() => triggerToast("Workspace: Enterprise Legal Vault active")}
+              onClick={() => triggerToast("Workspace: Legal Inspection Vault active")}
               className="flex items-center gap-2 px-1 text-left hover:opacity-80 transition-opacity cursor-pointer min-w-0"
               title="Workspace Preferences"
             >
@@ -75,66 +86,97 @@ export function LeftSidebar() {
       {/* Middle Section: Recent Contracts & History */}
       <div className="flex-1 overflow-y-auto py-3 px-2 flex flex-col gap-1 custom-scrollbar scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-black">
         {isSidebarOpen && (
-          <button
-            onClick={() => triggerToast("Switched to Contract History view")}
-            className="flex items-center gap-1.5 px-2 mb-1.5 text-[11px] font-mono text-zinc-500 hover:text-zinc-300 transition-colors uppercase tracking-widest text-left w-full cursor-pointer"
-            title="View Contract History"
-          >
-            <History className="w-3.5 h-3.5 text-zinc-500" />
-            <span>Recent Contracts</span>
-          </button>
+          <div className="flex items-center justify-between px-2 mb-1.5">
+            <span className="flex items-center gap-1.5 text-[11px] font-mono text-zinc-500 uppercase tracking-widest">
+              <History className="w-3.5 h-3.5 text-zinc-500" />
+              Recent Contracts
+            </span>
+            <span className="text-[10px] font-mono text-zinc-600">[{contracts.length}]</span>
+          </div>
         )}
 
-        {RECENT_HISTORY.map((item) => {
-          const isCurrent = file && file.name === item.name;
+        {contracts.length === 0 ? (
+          <div className="text-zinc-600 font-mono text-[11px] italic px-3 py-6 text-center">
+            {isSidebarOpen ? (
+              <>
+                No contracts saved.
+                <span className="block text-[10px] text-zinc-700 mt-1">Upload a document to begin.</span>
+              </>
+            ) : (
+              <span className="text-zinc-700">-</span>
+            )}
+          </div>
+        ) : (
+          contracts.map((item) => {
+            const isCurrent = currentContractId === item.id || (file && file.name === item.name);
+            const dotColor = (item.highRisks || item.criticalRisks)
+              ? 'bg-red-600 shadow-[0_0_6px_rgba(255,0,0,0.8)]'
+              : item.totalRisks > 0
+              ? 'bg-amber-500'
+              : 'bg-emerald-500';
 
-          if (!isSidebarOpen) {
+            if (!isSidebarOpen) {
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => handleSelect(item.id, item.name)}
+                  className={`w-9 h-9 mx-auto rounded-sm flex items-center justify-center transition-all cursor-pointer ${
+                    isCurrent
+                      ? 'bg-zinc-800 text-white border border-zinc-700'
+                      : 'text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300'
+                  }`}
+                  title={`${item.name} (${item.totalRisks} Risks)`}
+                >
+                  <FileText className="w-4 h-4" />
+                </button>
+              );
+            }
+
             return (
-              <button
+              <div
                 key={item.id}
-                onClick={() => handleSelectHistory(item.name)}
-                className={`w-9 h-9 mx-auto rounded-sm flex items-center justify-center transition-all cursor-pointer ${
+                className={`w-full text-left px-2.5 py-2 rounded-sm transition-all flex flex-col gap-1 group relative ${
                   isCurrent
-                    ? 'bg-zinc-800 text-white border border-zinc-700'
-                    : 'text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300'
+                    ? 'bg-zinc-900/90 border border-zinc-700 text-white font-medium'
+                    : 'bg-transparent border border-transparent hover:bg-zinc-900/50 text-zinc-400 hover:text-zinc-200'
                 }`}
-                title={`${item.name} (${item.risk})`}
               >
-                <FileText className="w-4 h-4" />
-              </button>
-            );
-          }
-
-          return (
-            <button
-              key={item.id}
-              onClick={() => handleSelectHistory(item.name)}
-              className={`w-full text-left px-2.5 py-2 rounded-sm transition-all flex flex-col gap-1 group cursor-pointer ${
-                isCurrent
-                  ? 'bg-zinc-900/90 border border-zinc-700 text-white font-medium'
-                  : 'bg-transparent border border-transparent hover:bg-zinc-900/50 text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              <div className="flex items-center justify-between gap-1.5">
-                <div className="flex items-center gap-2 min-w-0">
-                  <FileText className={`w-3.5 h-3.5 shrink-0 ${isCurrent ? 'text-zinc-300' : 'text-zinc-500 group-hover:text-zinc-300'}`} />
-                  <span className="text-xs font-mono truncate leading-normal">
-                    {item.name}
-                  </span>
+                <div 
+                  onClick={() => handleSelect(item.id, item.name)}
+                  className="flex items-center justify-between gap-1.5 cursor-pointer"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <FileText className={`w-3.5 h-3.5 shrink-0 ${isCurrent ? 'text-zinc-300' : 'text-zinc-500 group-hover:text-zinc-300'}`} />
+                    <span className="text-xs font-mono truncate leading-normal">
+                      {item.name}
+                    </span>
+                  </div>
+                  <ChevronRight className="w-3.5 h-3.5 text-zinc-600 group-hover:text-zinc-400 shrink-0 transition-transform" />
                 </div>
-                <ChevronRight className="w-3.5 h-3.5 text-zinc-600 group-hover:text-zinc-400 shrink-0 transition-transform" />
+                
+                <div className="flex items-center justify-between text-[11px] pl-5 text-zinc-500 font-mono">
+                  <span className="text-[10px] text-zinc-500">{item.date}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 text-[10px] text-zinc-400 font-normal">
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotColor} inline-block`} />
+                      {item.totalRisks} {item.totalRisks === 1 ? 'Risk' : 'Risks'}
+                    </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteContract(item.id);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 hover:text-red-400 p-0.5 transition-opacity"
+                      title="Delete contract"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
               </div>
-              
-              <div className="flex items-center justify-between text-[11px] pl-5 text-zinc-500 font-mono">
-                <span className="text-[10px] text-zinc-500">{item.date}</span>
-                <span className="inline-flex items-center gap-1.5 text-[11px] text-zinc-400 font-normal">
-                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${item.dotColor} inline-block`} />
-                  {item.risk}
-                </span>
-              </div>
-            </button>
-          );
-        })}
+            );
+          })
+        )}
       </div>
 
       {/* Bottom Section: Compact User Profile Card */}

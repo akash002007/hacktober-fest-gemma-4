@@ -41,7 +41,7 @@ export function ClauseDiffCard({
   onSelect,
   cardRef
 }: ClauseDiffCardProps) {
-  const { acceptFix, updateCounterClause, triggerToast } = useContractStore();
+  const { acceptFix, dismissRisk, updateRiskStatus, updateCounterClause, triggerToast } = useContractStore();
 
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(clause.counter_clause || clause.text);
@@ -146,11 +146,12 @@ export function ClauseDiffCard({
 
   const getRiskBadge = (level: Clause['risk_level'], tag?: string) => {
     switch (level) {
+      case 'critical':
       case 'high':
         return (
           <span className="bg-red-600 text-white font-hud tracking-widest uppercase text-xs font-bold px-2 py-0.5 rounded-sm inline-flex items-center gap-1.5 shadow-[0_0_6px_rgba(255,0,0,0.8)] relative before:absolute before:inset-0 before:rounded-sm before:bg-red-600/40 before:animate-[pulse_0.8s_ease-in-out_3]">
             <ShieldAlert className="w-3.5 h-3.5 text-white shrink-0 relative z-10" />
-            <span className="relative z-10">{tag || '#1 High Risk'}</span>
+            <span className="relative z-10">{tag || (level === 'critical' ? '#1 Critical Risk' : '#1 High Risk')}</span>
           </span>
         );
       case 'medium':
@@ -161,6 +162,7 @@ export function ClauseDiffCard({
           </span>
         );
       case 'low':
+      default:
         return (
           <span className="bg-zinc-800 text-zinc-300 font-hud tracking-widest uppercase text-xs px-2 py-0.5 rounded-sm inline-flex items-center gap-1.5 border border-zinc-700">
             <CheckCircle2 className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
@@ -424,7 +426,12 @@ export function ClauseDiffCard({
         
         {/* Status Badge Update */}
         <div className="flex items-center gap-2">
-          {isAccepted ? (
+          {clause.resolution_status === 'dismissed' ? (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-sm bg-zinc-900 text-zinc-500 border border-zinc-800 text-xs font-mono">
+              <X className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+              <span>Dismissed</span>
+            </span>
+          ) : isAccepted ? (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-sm bg-zinc-900 text-zinc-300 border border-zinc-700 text-xs font-bold font-mono shadow-sm">
               <CheckCircle2 className="w-4 h-4 text-white shrink-0" />
               <span>Accepted & Resolved</span>
@@ -437,7 +444,7 @@ export function ClauseDiffCard({
           )}
         </div>
 
-        {/* Action Buttons: Edit, Copy Text, Accept Fix - Minimalist Outline Style */}
+        {/* Action Buttons: Edit, Copy Text, Accept Fix, Dismiss */}
         <div className="flex items-center gap-2 flex-wrap ml-auto">
           
           <button
@@ -474,6 +481,24 @@ export function ClauseDiffCard({
                 <span>Copy Text</span>
               </>
             )}
+          </button>
+
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (clause.resolution_status === 'dismissed') {
+                updateRiskStatus(clause.id, 'pending');
+                triggerToast(`Re-opened "${clause.clause_name}" as pending.`);
+              } else {
+                dismissRisk(clause.id);
+              }
+            }}
+            className="bg-zinc-900 border border-zinc-700 hover:border-zinc-500 text-zinc-400 hover:text-zinc-200 font-display font-semibold uppercase tracking-wider text-xs rounded-sm px-2.5 py-1.5 transition-colors inline-flex items-center gap-1.5"
+            title="Dismiss or re-open this risk"
+          >
+            <X className="w-3.5 h-3.5 text-zinc-500" />
+            <span>{clause.resolution_status === 'dismissed' ? 'Re-open' : 'Dismiss'}</span>
           </button>
 
           <button

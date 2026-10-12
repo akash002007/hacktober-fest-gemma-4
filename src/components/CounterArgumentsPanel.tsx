@@ -32,11 +32,13 @@ export function CounterArgumentsPanel() {
 
   const filteredClauses = clauses.filter((c) => {
     if (activeTab === 'all') return true;
+    if (activeTab === 'high') return c.risk_level === 'high' || c.risk_level === 'critical';
     return c.risk_level === activeTab;
   });
 
-  const pendingRisksCount = clauses.filter((c) => !c.is_accepted).length;
-  const resolvedRisksCount = clauses.filter((c) => Boolean(c.is_accepted)).length;
+  const pendingRisksCount = clauses.filter((c) => c.resolution_status === 'pending' || (!c.resolution_status && !c.is_accepted)).length;
+  const resolvedRisksCount = clauses.filter((c) => Boolean(c.is_accepted) || c.resolution_status === 'resolved' || c.resolution_status === 'accepted').length;
+  const dismissedRisksCount = clauses.filter((c) => c.resolution_status === 'dismissed').length;
 
   return (
     <div className="flex flex-col h-full w-full bg-black/60 backdrop-blur-xl border-l border-white/10 border-t-white/20 shadow-2xl rounded-md overflow-hidden relative">
@@ -74,6 +76,12 @@ export function CounterArgumentsPanel() {
               <span>Resolved: <strong className="font-mono font-bold text-sm text-white">{resolvedRisksCount}</strong></span>
             </div>
           )}
+
+          {dismissedRisksCount > 0 && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-sm bg-zinc-900 border border-zinc-800 text-xs font-mono text-zinc-400">
+              <span>Dismissed: <strong className="font-mono text-zinc-300">{dismissedRisksCount}</strong></span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -86,6 +94,8 @@ export function CounterArgumentsPanel() {
           {(['all', 'high', 'medium', 'low'] as const).map((tab) => {
             const count = tab === 'all' 
               ? clauses.length 
+              : tab === 'high'
+              ? clauses.filter((c) => c.risk_level === 'high' || c.risk_level === 'critical').length
               : clauses.filter((c) => c.risk_level === tab).length;
 
             const labelMap = {

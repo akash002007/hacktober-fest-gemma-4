@@ -34,13 +34,13 @@ export function App() {
     clauses, 
     isAnalyzing, 
     file, 
-    reset, 
+    resetWorkspace,
+    isDemoData,
     loadMockDocument,
     triggerToast,
     setExportModalOpen,
     isAuthenticated,
-    setAuthenticated,
-    isDemoData,
+    setAuthenticated
   } = useContractStore();
 
   const [prompt, setPrompt] = useState('');
@@ -58,22 +58,77 @@ export function App() {
 
   const handlePromptSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    if (!prompt.trim()) return;
     if (!file && clauses.length === 0) {
-      loadMockDocument('Master_Services_Agreement_2026.pdf');
+      triggerToast("Please upload a contract document before submitting a legal prompt.");
+      return;
     }
+    triggerToast(`Prompt applied: "${prompt.slice(0, 40)}..."`);
     setPrompt('');
   };
 
-  const handleAttachFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAttachFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      triggerToast("Please upload contracts or notices using the main Upload Zone above.");
+      const selectedFile = e.target.files[0];
       if (hiddenFileInputRef.current) hiddenFileInputRef.current.value = '';
+
+      const { setFile, setAnalyzing, setClauses, setSelectedClauseId, setIsDemoData, setGeneralResponse, setScratchpadSummary } = useContractStore.getState();
+      setFile(selectedFile);
+      setAnalyzing(true);
+
+      try {
+        const formData = new FormData();
+        formData.append('pdf', selectedFile);
+        if (prompt.trim()) formData.append('prompt', prompt.trim());
+
+        const res = await fetch('http://localhost:5000/api/analyze', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || `Upload failed with status ${res.status}`);
+        }
+
+        const json = await res.json();
+        const contract = json.contract;
+        const analysisData = json.data || {};
+        const rawFindings = contract?.risks || analysisData.findings || [];
+
+        setIsDemoData(false);
+        setClauses(rawFindings);
+        setSelectedClauseId(rawFindings[0]?.id || null);
+        if (setGeneralResponse) setGeneralResponse(analysisData.general_response || contract?.generalResponse);
+        if (setScratchpadSummary) setScratchpadSummary(analysisData.scratchpad_summary || contract?.scratchpadSummary);
+
+        if (contract?.id) {
+          useContractStore.setState({
+            currentContractId: contract.id,
+            currentContract: contract,
+            fileUrl: `http://localhost:5000/api/contracts/${contract.id}/file`,
+            financialExposure: contract.financialExposure || 'Not assessed',
+            activeStep: contract.activeStep || 6,
+            executionEvents: contract.executionEvents || [],
+          });
+          useContractStore.getState().loadContracts();
+        }
+
+        triggerToast(`Analysis completed! Indexed ${rawFindings.length} clauses.`);
+      } catch (err: any) {
+        triggerToast(`Analysis Failed: ${err.message}`);
+        setFile(null);
+        setClauses([]);
+      } finally {
+        setAnalyzing(false);
+        setPrompt('');
+      }
     }
   };
 
   const handleQuickDemo = () => {
     loadMockDocument('Vendor_MSA_Acme_2026.pdf');
-    triggerToast("Instant Demo Preset loaded (Demo data).");
+    triggerToast("Sample Demo Preset loaded. Displaying pre-analyzed demo data.");
   };
 
   const isDocumentLoaded = (file !== null || clauses.length > 0) && !isAnalyzing;
@@ -105,9 +160,8 @@ export function App() {
                     {file.name}
                   </span>
                   {isDemoData && (
-                    <span className="font-hud tracking-widest text-[10px] uppercase text-amber-300 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded-sm flex items-center gap-1.5 shrink-0" title="Preloaded simulation data">
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                      Demo data
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-sm bg-amber-950/80 text-amber-300 border border-amber-800 uppercase font-bold tracking-wider">
+                      Demo Mode
                     </span>
                   )}
                 </>
@@ -137,8 +191,13 @@ export function App() {
                 </button>
 
                 <button
-                  onClick={() => reset()}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-sm bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white font-display font-semibold uppercase tracking-wider text-xs transition-all active:scale-95"
+                  onClick={async () => {
+                    if (window.confirm("Are you sure you want to reset the active workspace?")) {
+                      await resetWorkspace();
+                      triggerToast("Active workspace reset.");
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-sm bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white font-display font-semibold uppercase tracking-wider text-xs transition-all active:scale-95"
                   title="Reset active workbench"
                 >
                   <RefreshCw className="w-3.5 h-3.5 text-zinc-400" />
