@@ -1,0 +1,50 @@
+{
+  "name": "contractlens-ai",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ContractLens AI — Production-ready RAG pipeline and legal frontend for contract risk analysis",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "oxlint",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.0",
+    "@langchain/core": "^1.2.3",
+    "@langchain/google-genai": "^2.2.0",
+    "@langchain/textsplitters": "^1.0.1",
+    "@qdrant/js-client-rest": "^1.12.0",
+    "@react-pdf-viewer/core": "^3.12.0",
+    "@react-pdf-viewer/highlight": "^3.12.0",
+    "clsx": "^2.1.1",
+    "cors": "^2.8.6",
+    "dotenv": "^16.6.1",
+    "express": "^5.2.1",
+    "langsmith": "^0.8.7",
+    "lucide-react": "^0.454.0",
+    "multer": "^2.2.0",
+    "p-limit": "^6.2.0",
+    "pdf-parse": "^2.4.5",
+    "pdfjs-dist": "^3.11.174",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-pdf": "^9.1.0",
+    "tailwind-merge": "^2.5.4",
+    "uuid": "^14.0.1",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/node": "^26.6.5",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10"
+  }
+}
