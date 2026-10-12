@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { useContractStore } from './store/useContractStore';
+import { useContractStore, API_BASE } from './store/useContractStore';
 import { LandingPage } from './components/LandingPage';
 import { LeftSidebar } from './components/LeftSidebar';
 import { AiScratchpad } from './components/AiScratchpad';
@@ -81,14 +81,28 @@ export function App() {
         formData.append('pdf', selectedFile);
         if (prompt.trim()) formData.append('prompt', prompt.trim());
 
-        const res = await fetch('http://localhost:5000/api/analyze', {
+        const targetUrl = `${API_BASE}/api/analyze`;
+        const res = await fetch(targetUrl, {
           method: 'POST',
           body: formData,
         });
 
         if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.error || `Upload failed with status ${res.status}`);
+          let errData: any = {};
+          try {
+            errData = await res.json();
+          } catch {
+            // Non-JSON response
+          }
+          let serverMsg = errData.error || errData.message;
+          if (!serverMsg) {
+            if (res.status === 502 || res.status === 503) {
+              serverMsg = 'Backend server is unavailable or offline (HTTP 502/503). Ensure backend is running on port 5000.';
+            } else {
+              serverMsg = `Server returned HTTP ${res.status}`;
+            }
+          }
+          throw new Error(serverMsg);
         }
 
         const json = await res.json();
@@ -106,7 +120,7 @@ export function App() {
           useContractStore.setState({
             currentContractId: contract.id,
             currentContract: contract,
-            fileUrl: `http://localhost:5000/api/contracts/${contract.id}/file`,
+            fileUrl: `${API_BASE}/api/contracts/${contract.id}/file`,
             financialExposure: contract.financialExposure || 'Not assessed',
             activeStep: contract.activeStep || 6,
             executionEvents: contract.executionEvents || [],
@@ -116,7 +130,11 @@ export function App() {
 
         triggerToast(`Analysis completed! Indexed ${rawFindings.length} clauses.`);
       } catch (err: any) {
-        triggerToast(`Analysis Failed: ${err.message}`);
+        let errMsg = err.message || 'Unknown processing error';
+        if (err instanceof TypeError && err.message.toLowerCase().includes('failed to fetch')) {
+          errMsg = 'Cannot reach backend server. Please verify the Express backend is running on http://localhost:5000.';
+        }
+        triggerToast(`Analysis Failed: ${errMsg}`);
         setFile(null);
         setClauses([]);
       } finally {

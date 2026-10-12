@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useContractStore } from '../store/useContractStore';
+import { useContractStore, API_BASE } from '../store/useContractStore';
 import {
   UploadCloud,
   FileText,
@@ -94,18 +94,49 @@ export function UploadZone() {
     setAnalyzing(true);
     setProgress(15);
 
+    const targetUrl = `${API_BASE}/api/analyze`;
+    if (import.meta.env.DEV) {
+      console.log(`[ContractAI Diagnostics] Initiating analysis request to ${targetUrl}`, {
+        filename: selectedFile.name,
+        size: selectedFile.size,
+        mimeType: selectedFile.type,
+      });
+    }
+
     try {
       const formData = new FormData();
       formData.append('pdf', selectedFile);
 
-      const response = await fetch('http://localhost:5000/api/analyze', {
+      const response = await fetch(targetUrl, {
         method: 'POST',
         body: formData,
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Server returned error HTTP ${response.status}`);
+        let errorData: any = {};
+        try {
+          errorData = await response.json();
+        } catch {
+          // Response body was not JSON (e.g. gateway HTML error)
+        }
+
+        let serverMsg = errorData.error || errorData.message;
+        if (!serverMsg) {
+          if (response.status === 404) {
+            serverMsg = 'Analysis API endpoint not found (HTTP 404). Check backend routing.';
+          } else if (response.status === 413) {
+            serverMsg = 'Uploaded file exceeds the maximum size limit (HTTP 413).';
+          } else if (response.status === 429) {
+            serverMsg = 'Rate limit reached. Please wait a moment before re-analyzing.';
+          } else if (response.status === 502 || response.status === 503) {
+            serverMsg = 'Backend server is unavailable or offline (HTTP 502/503). Ensure backend is running on port 5000.';
+          } else if (response.status >= 500) {
+            serverMsg = 'Internal server or AI inference failure occurred.';
+          } else {
+            serverMsg = `Server returned HTTP ${response.status}`;
+          }
+        }
+        throw new Error(serverMsg);
       }
 
       const jsonResult = await response.json();
@@ -140,7 +171,7 @@ export function UploadZone() {
         useContractStore.setState({
           currentContractId: contract.id,
           currentContract: contract,
-          fileUrl: `http://localhost:5000/api/contracts/${contract.id}/file`,
+          fileUrl: `${API_BASE}/api/contracts/${contract.id}/file`,
           financialExposure: contract.financialExposure || 'Not assessed',
           activeStep: contract.activeStep || 6,
           executionEvents: contract.executionEvents || [],
@@ -151,7 +182,10 @@ export function UploadZone() {
       triggerToast(`Analysis completed successfully! Indexed ${rawFindings.length} clauses.`);
     } catch (err: any) {
       console.error('Live analysis failed:', err);
-      const errMsg = err.message || 'Failed to connect to backend server at http://localhost:5000.';
+      let errMsg = err.message || 'Unknown processing error';
+      if (err instanceof TypeError && err.message.toLowerCase().includes('failed to fetch')) {
+        errMsg = 'Cannot reach backend server. Please verify the Express backend is running on http://localhost:5000.';
+      }
       setError(`Analysis Error: ${errMsg}`);
       triggerToast(`Analysis Failed: ${errMsg}`);
       setFile(null);
