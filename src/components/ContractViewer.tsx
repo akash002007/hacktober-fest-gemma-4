@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useContractStore } from '../store/useContractStore';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
@@ -13,14 +13,15 @@ import {
   FileText,
   Eye,
   AlertCircle,
-  RefreshCw
+  RefreshCw,
+  Loader2
 } from 'lucide-react';
 import { PDFHighlightLayer } from './PDFHighlightLayer';
 
-pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
-  import.meta.url,
-).toString();
+// Configure PDF.js worker using the verified local worker asset matching react-pdf (4.8.69)
+if (typeof window !== 'undefined') {
+  pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+}
 
 export function ContractViewer() {
   const { file, fileUrl, currentContract, clauses, selectedClauseId, isAnalyzing } = useContractStore();
@@ -28,7 +29,12 @@ export function ContractViewer() {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [scale, setScale] = useState<number>(1.0);
   const [pdfError, setPdfError] = useState<boolean>(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isRetrying, setIsRetrying] = useState<boolean>(false);
+  const [retryCount, setRetryCount] = useState<number>(0);
   const [showOverlay, setShowOverlay] = useState<boolean>(true);
+  const [imageObjectUrl, setImageObjectUrl] = useState<string | null>(null);
 
   const pageContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -40,8 +46,41 @@ export function ContractViewer() {
     (currentContract && currentContract.mimeType?.startsWith('image/'))
   );
 
-  const activeDocSource = fileUrl || (file && file.size > 0 ? file : null);
+  // Manage Blob URL safely for image files with automatic cleanup to prevent memory leaks
+  useEffect(() => {
+    if (isImage && file && file.size > 0) {
+      const url = URL.createObjectURL(file);
+      setImageObjectUrl(url);
+      return () => {
+        URL.revokeObjectURL(url);
+      };
+    } else {
+      setImageObjectUrl(null);
+    }
+  }, [isImage, file]);
 
+  // Determine active document source:
+  // Prefer in-memory File object if available with valid content (zero network roundtrips).
+  // Otherwise, use the file streaming URL from the server.
+  const activeDocSource = useMemo(() => {
+    if (file && file.size > 0) {
+      return file;
+    }
+    if (fileUrl) {
+      return fileUrl;
+    }
+    return null;
+  }, [file, fileUrl]);
+
+  // Unique key identifying the current document to ensure clean remounting on contract switch or retry
+  const activeDocKey = useMemo(() => {
+    if (currentContract?.id) return currentContract.id;
+    if (file && file.size > 0) return `${file.name}-${file.size}-${file.lastModified}`;
+    if (fileUrl) return fileUrl;
+    return 'empty';
+  }, [currentContract?.id, file, fileUrl]);
+
+  // Synchronize current page when a clause is selected in the review drawer
   useEffect(() => {
     if (selectedClauseId) {
       const selected = clauses.find((c) => c.id === selectedClauseId);
@@ -51,18 +90,66 @@ export function ContractViewer() {
     }
   }, [selectedClauseId, clauses]);
 
+  // Reset state when switching contracts
   useEffect(() => {
     setCurrentPage(1);
     setPdfError(false);
-  }, [file, fileUrl]);
+    setErrorMessage(null);
+    setRetryCount(0);
+    if (activeDocSource) {
+      setIsLoading(true);
+    } else {
+      setIsLoading(false);
+      setNumPages(null);
+    }
+  }, [activeDocKey]);
 
   const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
     setNumPages(numPages);
     setPdfError(false);
+    setErrorMessage(null);
+    setIsLoading(false);
+    setIsRetrying(false);
   };
 
-  const onDocumentLoadError = () => {
+  const onDocumentLoadError = (error: Error) => {
+    console.error('[ContractViewer] Document render failure:', error);
     setPdfError(true);
+    setIsLoading(false);
+    setIsRetrying(false);
+
+    let friendlyMessage = error?.message || 'Unable to parse and render PDF binary canvas in browser.';
+    if (error?.name === 'MissingPDFException' || friendlyMessage.toLowerCase().includes('missing')) {
+      friendlyMessage = 'The requested contract document could not be found or retrieved from the server.';
+    } else if (error?.name === 'InvalidPDFException' || friendlyMessage.toLowerCase().includes('invalid pdf')) {
+      friendlyMessage = 'The document binary appears corrupted or does not conform to valid PDF specifications.';
+    } else if (error?.name === 'UnexpectedResponseException') {
+      friendlyMessage = 'Server returned an invalid or unexpected response when streaming document data.';
+    }
+    setErrorMessage(friendlyMessage);
+  };
+
+  const handleRetry = async () => {
+    if (isRetrying) return;
+    setIsRetrying(true);
+    setPdfError(false);
+    setErrorMessage(null);
+    setIsLoading(true);
+
+    // If source is a URL, verify reachability before remounting
+    if (typeof activeDocSource === 'string') {
+      try {
+        const check = await fetch(activeDocSource, { method: 'HEAD' });
+        if (!check.ok) {
+          throw new Error(`Document server returned HTTP ${check.status} (${check.statusText})`);
+        }
+      } catch (err: any) {
+        console.warn('[ContractViewer] Revalidation warning:', err);
+      }
+    }
+
+    // Increment retry count to force clean unmount and fresh remount of react-pdf Document
+    setRetryCount((prev) => prev + 1);
   };
 
   const handleZoomIn = () => setScale((prev) => Math.min(prev + 0.15, 2.2));
@@ -85,6 +172,16 @@ export function ContractViewer() {
       {activeDocSource && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-40 bg-black/90 border border-zinc-800 text-zinc-300 font-mono text-xs rounded-sm px-3 py-1.5 backdrop-blur-md flex items-center gap-3 sm:gap-5 max-w-[95%] shadow-md shrink-0">
           
+          {isLoading && (
+            <>
+              <div className="flex items-center gap-1.5 text-zinc-400 text-[11px] animate-pulse">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-300" />
+                <span className="hidden sm:inline">Loading...</span>
+              </div>
+              <div className="h-4 w-px bg-zinc-800" />
+            </>
+          )}
+
           <div className="flex items-center gap-2">
             <span className="text-xs font-mono text-zinc-400 flex items-center gap-1.5">
               <Layers className="w-3.5 h-3.5 text-zinc-400" />
@@ -94,7 +191,7 @@ export function ContractViewer() {
             <button
               onClick={() => setShowOverlay(!showOverlay)}
               title="Toggle risk heatmap layer"
-              className={`inline-flex items-center gap-1 text-zinc-400 hover:text-white hover:bg-zinc-900 rounded-sm p-1 transition-colors text-[11px] font-mono px-2 py-0.5 ${
+              className={`inline-flex items-center gap-1 text-zinc-400 hover:text-white hover:bg-zinc-900 rounded-sm p-1 transition-colors text-[11px] font-mono px-2 py-0.5 cursor-pointer ${
                 showOverlay
                   ? 'bg-zinc-800 text-white border border-zinc-700'
                   : 'bg-zinc-950 border border-zinc-800'
@@ -111,7 +208,7 @@ export function ContractViewer() {
             <button
               onClick={handlePrevPage}
               disabled={currentPage <= 1}
-              className="text-zinc-400 hover:text-white hover:bg-zinc-900 rounded-sm p-1 transition-colors disabled:opacity-30 disabled:pointer-events-none"
+              className="text-zinc-400 hover:text-white hover:bg-zinc-900 rounded-sm p-1 transition-colors disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
               title="Previous Page"
             >
               <ChevronLeft className="w-4 h-4" />
@@ -124,7 +221,7 @@ export function ContractViewer() {
             <button
               onClick={handleNextPage}
               disabled={currentPage >= totalPages}
-              className="text-zinc-400 hover:text-white hover:bg-zinc-900 rounded-sm p-1 transition-colors disabled:opacity-30 disabled:pointer-events-none"
+              className="text-zinc-400 hover:text-white hover:bg-zinc-900 rounded-sm p-1 transition-colors disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
               title="Next Page"
             >
               <ChevronRight className="w-4 h-4" />
@@ -137,7 +234,7 @@ export function ContractViewer() {
             <button
               onClick={handleZoomOut}
               disabled={scale <= 0.5}
-              className="text-zinc-400 hover:text-white hover:bg-zinc-900 rounded-sm p-1 transition-colors disabled:opacity-30"
+              className="text-zinc-400 hover:text-white hover:bg-zinc-900 rounded-sm p-1 transition-colors disabled:opacity-30 cursor-pointer"
               title="Zoom Out"
             >
               <ZoomOut className="w-3.5 h-3.5" />
@@ -150,7 +247,7 @@ export function ContractViewer() {
             <button
               onClick={handleZoomIn}
               disabled={scale >= 2.2}
-              className="text-zinc-400 hover:text-white hover:bg-zinc-900 rounded-sm p-1 transition-colors disabled:opacity-30"
+              className="text-zinc-400 hover:text-white hover:bg-zinc-900 rounded-sm p-1 transition-colors disabled:opacity-30 cursor-pointer"
               title="Zoom In"
             >
               <ZoomIn className="w-3.5 h-3.5" />
@@ -160,7 +257,7 @@ export function ContractViewer() {
 
             <button
               onClick={handleResetZoom}
-              className="text-zinc-400 hover:text-white hover:bg-zinc-900 rounded-sm p-1 transition-colors hidden sm:inline-flex"
+              className="text-zinc-400 hover:text-white hover:bg-zinc-900 rounded-sm p-1 transition-colors hidden sm:inline-flex cursor-pointer"
               title="Reset Zoom"
             >
               <RotateCcw className="w-3.5 h-3.5" />
@@ -196,14 +293,21 @@ export function ContractViewer() {
           <div className="flex flex-col items-center justify-center p-8 text-center max-w-md mx-auto my-auto border border-red-900/50 rounded-sm bg-red-950/20 font-mono">
             <AlertCircle className="w-8 h-8 text-red-500 mb-2" />
             <h4 className="text-sm font-bold text-red-400 mb-1">Canvas Render Notice</h4>
-            <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
-              Unable to render PDF binary canvas in browser. Text analysis and counter-proposals are active below.
+            <p className="text-xs text-zinc-300 mb-2 leading-relaxed">
+              {errorMessage || 'Unable to render PDF binary canvas in browser.'}
             </p>
+            {clauses.length > 0 && (
+              <p className="text-[11px] text-zinc-400 mb-4 bg-zinc-900/60 border border-zinc-800 px-3 py-1.5 rounded-sm">
+                Extracted legal findings and {clauses.length} counter-proposals remain active and accessible in the review drawer below.
+              </p>
+            )}
             <button
-              onClick={() => setPdfError(false)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 text-xs rounded border border-zinc-700 font-mono"
+              onClick={handleRetry}
+              disabled={isRetrying}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 text-xs rounded border border-zinc-700 font-mono transition-colors disabled:opacity-50 cursor-pointer"
             >
-              <RefreshCw className="w-3.5 h-3.5" /> Retry Canvas Render
+              <RefreshCw className={`w-3.5 h-3.5 ${isRetrying ? 'animate-spin' : ''}`} />
+              {isRetrying ? 'Retrying Canvas Render...' : 'Retry Canvas Render'}
             </button>
           </div>
         )}
@@ -214,7 +318,7 @@ export function ContractViewer() {
             {isImage ? (
               <div ref={pageContainerRef} className="relative rounded-sm overflow-hidden bg-zinc-900 shadow-md">
                 <img
-                  src={typeof activeDocSource === 'string' ? activeDocSource : URL.createObjectURL(activeDocSource)}
+                  src={imageObjectUrl || (typeof activeDocSource === 'string' ? activeDocSource : '')}
                   alt={currentContract?.filename || file?.name || 'Contract Notice'}
                   className="max-w-full h-auto object-contain block mx-auto rounded-sm"
                   style={{ transform: `scale(${scale})`, transformOrigin: 'top center' }}
@@ -229,12 +333,14 @@ export function ContractViewer() {
             ) : (
               <div ref={pageContainerRef} className="relative rounded-sm overflow-hidden bg-white shadow-md">
                 <Document
+                  key={`pdf-doc-${activeDocKey}-${retryCount}`}
                   file={activeDocSource}
                   onLoadSuccess={onDocumentLoadSuccess}
                   onLoadError={onDocumentLoadError}
                   loading={
-                    <div className="flex items-center justify-center p-20 text-zinc-400 font-mono text-xs">
-                      Loading PDF Document...
+                    <div className="flex flex-col items-center justify-center p-20 text-zinc-400 font-mono text-xs gap-3">
+                      <Loader2 className="w-6 h-6 animate-spin text-zinc-400" />
+                      <span>Loading PDF Document Canvas...</span>
                     </div>
                   }
                 >
