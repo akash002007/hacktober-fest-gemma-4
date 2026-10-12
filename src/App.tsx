@@ -39,7 +39,8 @@ export function App() {
     triggerToast,
     setExportModalOpen,
     isAuthenticated,
-    setAuthenticated
+    setAuthenticated,
+    isDemoData,
   } = useContractStore();
 
   const [prompt, setPrompt] = useState('');
@@ -65,14 +66,14 @@ export function App() {
 
   const handleAttachFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      loadMockDocument(e.target.files[0].name);
+      triggerToast("Please upload contracts or notices using the main Upload Zone above.");
       if (hiddenFileInputRef.current) hiddenFileInputRef.current.value = '';
     }
   };
 
   const handleQuickDemo = () => {
     loadMockDocument('Vendor_MSA_Acme_2026.pdf');
-    triggerToast("Instant Demo Preset loaded. Displaying legal risk analysis.");
+    triggerToast("Instant Demo Preset loaded (Demo data).");
   };
 
   const isDocumentLoaded = (file !== null || clauses.length > 0) && !isAnalyzing;
@@ -103,6 +104,12 @@ export function App() {
                     <FileText className="w-3.5 h-3.5 text-zinc-400" />
                     {file.name}
                   </span>
+                  {isDemoData && (
+                    <span className="font-hud tracking-widest text-[10px] uppercase text-amber-300 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded-sm flex items-center gap-1.5 shrink-0" title="Preloaded simulation data">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                      Demo data
+                    </span>
+                  )}
                 </>
               )}
             </div>

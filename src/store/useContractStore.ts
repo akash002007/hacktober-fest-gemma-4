@@ -132,6 +132,9 @@ interface ContractState {
   setGeneralResponse: (response: string | null) => void;
   scratchpadSummary: string | null;
   setScratchpadSummary: (summary: string | null) => void;
+  // Demo Mode Distinction
+  isDemoData: boolean;
+  setIsDemoData: (isDemo: boolean) => void;
 }
 
 export const useContractStore = create<ContractState>((set, get) => ({
@@ -139,6 +142,8 @@ export const useContractStore = create<ContractState>((set, get) => ({
   setGeneralResponse: (response) => set({ generalResponse: response }),
   scratchpadSummary: null,
   setScratchpadSummary: (summary) => set({ scratchpadSummary: summary }),
+  isDemoData: false,
+  setIsDemoData: (isDemo) => set({ isDemoData: isDemo }),
 
   file: null,
   setFile: (file) => set({ file }),
@@ -208,6 +213,7 @@ export const useContractStore = create<ContractState>((set, get) => ({
       isExportModalOpen: false,
       scratchpadSummary: 'Simulated contract risk scan for Master Services Agreement complete.',
       generalResponse: 'Identified 4 key contractual exposures including uncapped indemnification and unilateral termination notice.',
+      isDemoData: true,
     });
   },
   reset: () =>
@@ -220,6 +226,7 @@ export const useContractStore = create<ContractState>((set, get) => ({
       isExportModalOpen: false,
       generalResponse: null,
       scratchpadSummary: null,
+      isDemoData: false,
     }),
   toastMessage: null,
   triggerToast: (msg) => {

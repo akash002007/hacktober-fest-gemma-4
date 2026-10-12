@@ -17,9 +17,10 @@ const analysisPrompt = PromptTemplate.fromTemplate(`
 You are an expert document negotiator and legal/contract analyst.
 Analyze the following document based on the user's instructions.
 
-CRITICAL INSTRUCTION:
-When filling the 'exact_quote' field in findings, copy text VERBATIM from the document. 
-Do not alter punctuation, spacing, or casing.
+CRITICAL INSTRUCTIONS:
+1. Identify and return the 3 to 8 riskiest clauses or covenants in the document.
+2. You MUST always include at least 3 findings whenever the document contains any obligations, covenants, or terms.
+3. When filling the 'exact_quote' field in findings, copy text VERBATIM from the document. Do not alter punctuation, spacing, or casing.
 
 {format_instructions}
 

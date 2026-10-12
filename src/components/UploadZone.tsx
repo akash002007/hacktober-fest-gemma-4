@@ -30,11 +30,11 @@ export function UploadZone() {
     setAnalyzing,
     setClauses,
     setSelectedClauseId,
-    mockData,
     reset,
     triggerToast,
     setGeneralResponse,
     setScratchpadSummary,
+    setIsDemoData,
   } = useContractStore();
 
   const [isDragging, setIsDragging] = useState(false);
@@ -116,12 +116,25 @@ export function UploadZone() {
         throw new Error('Backend returned empty analysis payload.');
       }
 
+      const rawFindings = analysisData.findings || [];
+
+      // STEP 3: Do not use mockData when model returns zero findings.
+      if (rawFindings.length === 0) {
+        setFile(null);
+        setClauses([]);
+        setSelectedClauseId(null);
+        setIsDemoData(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        setError('The model returned no findings for this document. Try again or upload a different file.');
+        triggerToast('The model returned no findings for this document. Try again or upload a different file.');
+        return;
+      }
+
       // Update store with document summary and scratchpad summary
       if (setGeneralResponse) setGeneralResponse(analysisData.general_response);
       if (setScratchpadSummary) setScratchpadSummary(analysisData.scratchpad_summary);
 
       // Transform backend findings into UI Clause objects
-      const rawFindings = analysisData.findings || [];
       const transformedClauses: Clause[] = rawFindings.map((finding: any, idx: number) => {
         const riskLevel: 'high' | 'medium' | 'low' =
           finding.severity_color === 'red' ? 'high' :
@@ -158,14 +171,20 @@ export function UploadZone() {
       });
 
       setProgress(100);
-      setClauses(transformedClauses.length > 0 ? transformedClauses : mockData);
-      setSelectedClauseId(transformedClauses[0]?.id || mockData[0]?.id || null);
+      setIsDemoData(false);
+      setClauses(transformedClauses);
+      setSelectedClauseId(transformedClauses[0]?.id || null);
       triggerToast(`Analysis completed successfully! Indexed ${transformedClauses.length} clauses.`);
     } catch (err: any) {
       console.error('Live analysis failed:', err);
       const errMsg = err.message || 'Failed to connect to backend server at http://localhost:5000.';
       setError(`Analysis Error: ${errMsg}`);
       triggerToast(`Analysis Failed: ${errMsg}`);
+      setFile(null);
+      setClauses([]);
+      setSelectedClauseId(null);
+      setIsDemoData(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     } finally {
       setAnalyzing(false);
     }
@@ -387,10 +406,10 @@ export function UploadZone() {
 
         <div className="mt-6 pt-4 border-t border-zinc-800 w-full max-w-sm flex items-center justify-center gap-6">
           <span className="font-hud tracking-widest text-xs uppercase text-zinc-300 flex items-center gap-1.5">
-            <FileText className="w-3.5 h-3.5 text-zinc-400" /> .pdf only
+            <FileText className="w-3.5 h-3.5 text-zinc-400" /> PDF or image of a notice
           </span>
           <span className="font-hud tracking-widest text-xs uppercase text-zinc-300 flex items-center gap-1.5">
-            <ShieldCheck className="w-3.5 h-3.5 text-zinc-400" /> Max file size: 10MB
+            <ShieldCheck className="w-3.5 h-3.5 text-zinc-400" /> Max file size: 15MB
           </span>
         </div>
 
